@@ -43,36 +43,68 @@ namespace MDWMBlurGlass
 	std::vector<DWORD> g_proclist;
 	UINT_PTR g_timerID = 0;
 
-	extern void OnProcessStart(DWORD id);
+	extern bool OnProcessStart(DWORD id);
 
 	void RefreshProcessList()
 	{
-		PROCESSENTRY32W pe;
+		PROCESSENTRY32W pe = {};
 		HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-		pe.dwSize = sizeof(PROCESSENTRY32W);
-		if (!Process32FirstW(hSnapshot, &pe))
+		if (hSnapshot == INVALID_HANDLE_VALUE)
 			return;
 
 		std::vector<DWORD> list;
-
-		while (Process32NextW(hSnapshot, &pe) != FALSE)
+		pe.dwSize = sizeof(PROCESSENTRY32W);
+		if (Process32FirstW(hSnapshot, &pe))
 		{
-			std::wstring exe = pe.szExeFile;
-			std::ranges::transform(exe, exe.begin(), ::tolower);
-
-			if(exe == L"dwm.exe")
-				list.push_back(pe.th32ProcessID);
+			do
+			{
+				if (_wcsicmp(pe.szExeFile, L"dwm.exe") == 0)
+					list.push_back(pe.th32ProcessID);
+			} while (Process32NextW(hSnapshot, &pe));
 		}
 		CloseHandle(hSnapshot);
 
-		for (const auto& id : list)
+		std::erase_if(g_proclist, [&list](DWORD id)
 		{
-			if (auto iter = std::ranges::find(g_proclist, id); iter != g_proclist.end())
+			return std::ranges::find(list, id) == list.end();
+		});
+
+		static std::unordered_map<DWORD, std::chrono::steady_clock::time_point> retryAfter;
+		const auto now = std::chrono::steady_clock::now();
+
+		for (const auto id : list)
+		{
+			if (std::ranges::find(g_proclist, id) != g_proclist.end())
 				continue;
 
-			OnProcessStart(id);
+			auto retry = retryAfter.find(id);
+			if (retry != retryAfter.end() && now < retry->second)
+				continue;
+
+			if (retry == retryAfter.end())
+			{
+				if (OnProcessStart(id))
+					g_proclist.push_back(id);
+				else
+					retryAfter[id] = now + std::chrono::seconds(5);
+			}
+			else
+			{
+				std::wstring err;
+				if (LoadDWMExtensionBase(err, id))
+				{
+					g_proclist.push_back(id);
+					retryAfter.erase(id);
+				}
+				else
+					retryAfter[id] = now + std::chrono::seconds(5);
+			}
 		}
-		g_proclist = list;
+
+		std::erase_if(retryAfter, [&list](const auto& entry)
+		{
+			return std::ranges::find(list, entry.first) == list.end();
+		});
 	}
 
 	bool IsEnableTransparency()
@@ -188,7 +220,7 @@ namespace MDWMBlurGlass
 		return SUCCEEDED(hr);
 	}
 
-	void OnProcessStart(DWORD id)
+	bool OnProcessStart(DWORD id)
 	{
 		//单独记录每个用户dwm进程的启动间隔状态
 		using namespace std::chrono;
@@ -227,10 +259,12 @@ namespace MDWMBlurGlass
 			sessionList.insert(std::make_pair(sessionId, sessionData()));
 
 		std::wstring err;
-		if(!LoadDWMExtensionBase(err, id))
+		if (!LoadDWMExtensionBase(err, id))
 		{
 			MessageBoxW(0, err.c_str(), L"DWMBlurGlass Error", MB_ICONERROR);
+			return false;
 		}
+		return true;
 	}
 
 	LRESULT CALLBACK MsgWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
@@ -336,7 +370,7 @@ namespace MDWMBlurGlass
 			err = GetBaseLanguageString(L"symloadfail");
 			return false;
 		}
-		const bool ret = Inject(GetProcessId(L"dwm.exe"), Utils::GetCurrentDir() + L"\\DWMBlurGlassExt.dll", err);
+		const bool ret = Inject(pid, Utils::GetCurrentDir() + L"\\DWMBlurGlassExt.dll", err);
 		if(ret)
 		{
 			auto enumproc = [](HWND hWnd, LPARAM _pid) -> BOOL
