@@ -247,7 +247,7 @@ namespace MDWMBlurGlass
 				iter->second.times = steady_clock::now().time_since_epoch();
 
 				if (ret != IDRETRY)
-					return;
+					return true;
 				else
 					retry = true;
 			}
