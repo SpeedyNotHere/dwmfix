@@ -1,0 +1,46 @@
+name: Windows build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Check out MiaoUILite
+        uses: actions/checkout@v4
+        with:
+          repository: Maplespe/MiaoUILite
+          ref: 3537e787417463b72eba556be01e89070781096b
+          path: MiaoUILite
+
+      - name: Set up MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Restore NuGet packages
+        run: nuget restore DWMBlurGlass.sln -PackagesDirectory packages
+
+      - name: Build MiaoUILite
+        run: msbuild MiaoUILite\MiaoUI\MiaoUI.vcxproj /m /p:Configuration=Release /p:Platform=x64 "/p:SolutionDir=$env:GITHUB_WORKSPACE\MiaoUILite/"
+
+      - name: Build DWMBlurGlass
+        env:
+          MUI_LITE_LIBRARY: ${{ github.workspace }}\MiaoUILite\MiaoUI
+        run: msbuild DWMBlurGlass.sln /m /p:Configuration=Release /p:Platform=x64
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: DWMBlurGlass-windows-x64
+          path: Build\x64\Release\*
+          if-no-files-found: error
+          retention-days: 14
