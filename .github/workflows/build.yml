@@ -16,10 +16,10 @@ jobs:
 
     steps:
       - name: Checkout DWMBlurGlass
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Checkout MiaoUI Lite
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: Maplespe/MiaoUILite
           ref: 2.0.8
@@ -32,12 +32,15 @@ jobs:
       - name: Set up NuGet
         uses: NuGet/setup-nuget@v2
 
+      - name: Restore MiaoUI Lite NuGet packages
+        run: nuget restore external/MiaoUILite/MiaoUI/packages.config -NonInteractive -PackagesDirectory external/MiaoUILite/packages
+
       - name: Build MiaoUI Lite
         shell: pwsh
         run: |
-          msbuild external/MiaoUILite/MiaoUI/MiaoUI.vcxproj /m /p:Configuration=Release /p:Platform=x64 "/p:SolutionDir=$((Resolve-Path 'external/MiaoUILite').Path)\"
+          msbuild external/MiaoUILite/MiaoUI/MiaoUI.vcxproj /m /p:Configuration=Release /p:Platform=x64 "/p:SolutionDir=$((Resolve-Path 'external/MiaoUILite').Path)\\"
 
-      - name: Restore NuGet packages
+      - name: Restore DWMBlurGlass NuGet packages
         run: nuget restore DWMBlurGlass.sln -NonInteractive -PackagesDirectory packages
 
       - name: Build DWMBlurGlass
